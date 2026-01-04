@@ -40,6 +40,7 @@ THIRD_PARTY_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
+    'storages',  # AWS S3 storage backend
 ]
 
 LOCAL_APPS = [
@@ -60,9 +61,9 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'core.tenant_isolation.TenantContextMiddleware',  # CRITICAL: Tenant isolation after auth
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    # Tenant middleware will be added here when implementing tenant isolation
 ]
 
 ROOT_URLCONF = 'photoshare_backend.urls'
@@ -90,7 +91,33 @@ TEMPLATES = [
 WSGI_APPLICATION = 'photoshare_backend.wsgi.application'
 
 # ==============================================================================
-# DATABASE CONFIGURATION (PostgreSQL Only)
+# AWS S3 CONFIGURATION
+# ==============================================================================
+
+# AWS Credentials and S3 Settings
+AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
+AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY', default='')
+AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME', default='church-photoshare')
+AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='us-east-1')
+
+# S3 Security Settings - Private Bucket
+AWS_DEFAULT_ACL = None  # Use bucket default (private)
+AWS_S3_OBJECT_PARAMETERS = {
+    'CacheControl': 'max-age=86400',  # 1 day cache
+}
+AWS_QUERYSTRING_AUTH = True  # Use signed URLs
+AWS_QUERYSTRING_EXPIRE = 600  # 10 minutes (600 seconds)
+
+# Media Storage Settings
+DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+AWS_S3_CUSTOM_DOMAIN = None  # Don't use custom domain for signed URLs
+
+# File Upload Settings
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB per file
+
+# ============================================================================== CONFIGURATION (PostgreSQL Only)
 # ==============================================================================
 
 # Default PostgreSQL configuration for development
@@ -137,7 +164,8 @@ AUTH_PASSWORD_VALIDATORS = [
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'core.authentication.CookieJWTAuthentication',  # Custom cookie-based JWT auth
+        'rest_framework_simplejwt.authentication.JWTAuthentication',  # Fallback header auth
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -164,19 +192,32 @@ REST_FRAMEWORK = {
 # ==============================================================================
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
+    # Token lifetimes
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),     # 1 hour access tokens
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),        # 7 day refresh tokens
+    'ROTATE_REFRESH_TOKENS': True,                      # Generate new refresh on refresh
+    'BLACKLIST_AFTER_ROTATION': True,                   # Blacklist old refresh tokens
+    
+    # Algorithm and keys
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': SECRET_KEY,
     'VERIFYING_KEY': None,
+    
+    # Token headers and claims
     'AUTH_HEADER_TYPES': ('Bearer',),
     'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
-    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
     'TOKEN_TYPE_CLAIM': 'token_type',
+    
+    # Token classes
+    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
+    'TOKEN_OBTAIN_SERIALIZER': 'core.auth_views.CustomTokenObtainPairSerializer',
+    
+    # Sliding tokens (disabled)
+    'SLIDING_TOKEN_REFRESH_EXP_CLAIM': 'refresh_exp',
+    'SLIDING_TOKEN_LIFETIME': timedelta(minutes=5),
+    'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1),
 }
 
 # ==============================================================================
