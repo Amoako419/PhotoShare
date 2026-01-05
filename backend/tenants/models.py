@@ -56,6 +56,19 @@ class Church(models.Model):
         help_text='Whether this church tenant is active'
     )
     
+    # Branding fields
+    logo_url = models.CharField(
+        max_length=500,
+        blank=True,
+        help_text='S3 path to church logo (e.g., tenants/{church_id}/branding/logo.png)'
+    )
+    
+    login_cover_image = models.CharField(
+        max_length=500,
+        blank=True,
+        help_text='S3 path to login page cover image (e.g., tenants/{church_id}/branding/cover.jpg)'
+    )
+    
     class Meta:
         db_table = 'tenants_church'
         verbose_name = 'Church'

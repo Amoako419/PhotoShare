@@ -8,6 +8,7 @@ instead of Authorization headers for enhanced security.
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import UntypedToken
+from rest_framework_simplejwt.settings import api_settings
 from django.contrib.auth.models import AnonymousUser
 import logging
 
@@ -56,13 +57,8 @@ class CookieJWTAuthentication(JWTAuthentication):
         """
         messages = []
         
-        # Get JWT settings
-        settings = self.get_jwt_settings()
-        auth_token_classes = getattr(settings, 'AUTH_TOKEN_CLASSES', None)
-        
-        if not auth_token_classes:
-            from rest_framework_simplejwt.tokens import AccessToken
-            auth_token_classes = (AccessToken,)
+        # Get JWT settings from api_settings
+        auth_token_classes = api_settings.AUTH_TOKEN_CLASSES or (api_settings.ACCESS_TOKEN_CLASS,)
         
         for AuthToken in auth_token_classes:
             try:
@@ -70,7 +66,7 @@ class CookieJWTAuthentication(JWTAuthentication):
             except TokenError as e:
                 messages.append({
                     'token_class': AuthToken.__name__,
-                    'token_type': AuthToken.token_type,
+                    'token_type': getattr(AuthToken, 'token_type', 'access'),
                     'message': e.args[0],
                 })
 
@@ -93,12 +89,12 @@ class CookieJWTAuthentication(JWTAuthentication):
             InvalidToken: If user not found or inactive
         """
         try:
-            user_id = validated_token[self.get_jwt_settings().USER_ID_CLAIM]
+            user_id = validated_token[api_settings.USER_ID_CLAIM]
         except KeyError:
             raise InvalidToken('Token contained no recognizable user identification')
 
         try:
-            user = self.user_model.objects.get(**{self.get_jwt_settings().USER_ID_FIELD: user_id})
+            user = self.user_model.objects.get(**{api_settings.USER_ID_FIELD: user_id})
         except self.user_model.DoesNotExist:
             raise InvalidToken('User not found')
 
