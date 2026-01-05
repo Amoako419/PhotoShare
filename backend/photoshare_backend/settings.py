@@ -61,6 +61,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'core.tenant_isolation.JWTCookieAuthenticationMiddleware',  # JWT auth before tenant isolation
     'core.tenant_isolation.TenantContextMiddleware',  # CRITICAL: Tenant isolation after auth
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
