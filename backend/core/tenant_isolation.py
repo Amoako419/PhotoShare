@@ -19,11 +19,46 @@ SECURITY PRINCIPLES:
 
 from django.http import JsonResponse
 from django.utils.deprecation import MiddlewareMixin
+from django.contrib.auth.models import AnonymousUser
 from rest_framework import permissions, status
 from rest_framework.exceptions import PermissionDenied
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+class JWTCookieAuthenticationMiddleware:
+    """
+    Middleware to authenticate users from JWT cookies early in the request cycle.
+    
+    This allows the tenant isolation middleware to work properly with JWT authentication
+    by setting request.user before process_view runs.
+    """
+    
+    def __init__(self, get_response):
+        self.get_response = get_response
+        
+    def __call__(self, request):
+        # Try to authenticate from JWT cookie for API requests
+        if request.path.startswith('/api/'):
+            access_token = request.COOKIES.get('access_token')
+            
+            if access_token and not request.user.is_authenticated:
+                # Import here to avoid circular imports
+                from .authentication import CookieJWTAuthentication
+                
+                auth = CookieJWTAuthentication()
+                try:
+                    user_auth = auth.authenticate(request)
+                    if user_auth is not None:
+                        request.user = user_auth[0]
+                        logger.debug(f"JWT cookie authenticated: {request.user.email}")
+                except Exception as e:
+                    logger.debug(f"JWT cookie authentication failed: {e}")
+                    pass
+        
+        response = self.get_response(request)
+        return response
 
 
 class TenantContextMiddleware(MiddlewareMixin):
@@ -42,10 +77,13 @@ class TenantContextMiddleware(MiddlewareMixin):
     
     SECURITY: This middleware must run AFTER authentication middleware
     to ensure user.church is available.
+    
+    For DRF views with token authentication, use process_view to run after
+    DRF's authentication is complete.
     """
     
     def process_request(self, request):
-        """Add tenant context to request."""
+        """Add tenant context to request for session-based auth."""
         
         # Initialize tenant context
         request.church = None
@@ -55,7 +93,34 @@ class TenantContextMiddleware(MiddlewareMixin):
         if not request.path.startswith('/api/'):
             return None
             
-        # For authenticated users, inject church context
+        # For session-authenticated users (Django admin, browsable API)
+        if hasattr(request, 'user') and request.user.is_authenticated:
+            if hasattr(request.user, 'church') and request.user.church:
+                request.church = request.user.church
+                request.is_tenant_isolated = True
+                
+                logger.info(
+                    f"Tenant access: user={request.user.email}, "
+                    f"church={request.church.name}, "
+                    f"path={request.path}, "
+                    f"method={request.method}"
+                )
+        
+        return None
+    
+    def process_view(self, request, view_func, view_args, view_kwargs):
+        """Add tenant context after DRF authentication for API views."""
+        
+        # Skip non-API requests
+        if not request.path.startswith('/api/'):
+            return None
+            
+        # If already processed (from session auth in process_request), skip
+        if request.is_tenant_isolated:
+            return None
+            
+        # After DRF authentication runs, user should be properly set
+        # This handles JWT cookie authentication and other DRF auth methods
         if hasattr(request, 'user') and request.user.is_authenticated:
             if hasattr(request.user, 'church') and request.user.church:
                 request.church = request.user.church
@@ -63,26 +128,20 @@ class TenantContextMiddleware(MiddlewareMixin):
                 
                 # Audit log for tenant access
                 logger.info(
-                    f"Tenant access: user={request.user.email}, "
+                    f"Tenant access (DRF): user={request.user.email}, "
                     f"church={request.church.name}, "
                     f"path={request.path}, "
                     f"method={request.method}"
                 )
             else:
-                # User exists but has no church assignment
-                # This is a security violation - user must be assigned to a church
+                # User is authenticated but has no church assignment
                 logger.warning(
-                    f"SECURITY: Authenticated user without church assignment: "
-                    f"{request.user.email} attempting access to {request.path}"
+                    f"User {request.user.email} authenticated but no church assigned "
+                    f"for {request.path}"
                 )
-                
-                # Return 403 for users without church assignment
-                return JsonResponse({
-                    'error': 'Church assignment required',
-                    'message': 'Your account must be assigned to a church before accessing this service.',
-                    'code': 'TENANT_ASSIGNMENT_REQUIRED'
-                }, status=403)
         
+        # Don't block at middleware level for DRF views
+        # Let view-level authentication and permissions handle tenant isolation
         return None
 
 
