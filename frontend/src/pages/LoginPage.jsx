@@ -44,8 +44,22 @@ const LoginPage = () => {
         // Don't block navigation if branding fetch fails
       }
       
-      // Redirect to dashboard
-      navigate('/dashboard');
+      // Fetch user info to determine role
+      try {
+        const userResponse = await api.get('/api/v1/core/auth/user/');
+        const userRole = userResponse.data.user?.role;
+        
+        // Redirect based on role
+        if (userRole === 'admin') {
+          navigate('/admin');
+        } else {
+          navigate('/home');
+        }
+      } catch (userErr) {
+        console.error('Failed to fetch user role:', userErr);
+        // Fallback to home if we can't determine role
+        navigate('/home');
+      }
     } catch (err) {
       setError(
         err.response?.data?.detail || 
