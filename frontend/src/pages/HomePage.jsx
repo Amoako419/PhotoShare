@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTenant } from '../contexts/TenantContext';
 import api, { logout } from '../lib/api';
+import LoadingSpinner from '../components/LoadingSpinner';
+import { buttonStyles, alertStyles, sectionStyles } from '../utils/buttonStyles';
 
 const HomePage = () => {
   const [albums, setAlbums] = useState([]);
@@ -54,43 +56,35 @@ const HomePage = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-8">
-          <div className="flex items-center gap-4">
-            {branding.logo_url && (
-              <img 
-                src={branding.logo_url} 
-                alt={`${branding.church_name} Logo`}
-                className="h-12 w-12 object-contain rounded-md"
-              />
+        <div className={`flex items-center gap-4 ${sectionStyles.spacing.section}`}>
+          {branding.logo_url && (
+            <img 
+              src={branding.logo_url} 
+              alt={`${branding.church_name} Logo`}
+              className="h-12 w-12 object-contain rounded-md"
+            />
+          )}
+          <div>
+            <h1 className={sectionStyles.pageHeader}>
+              {branding.church_name || 'Church'} Photos
+            </h1>
+            {branding.church_name && (
+              <p className="text-sm text-gray-600 mt-1">
+                Welcome to {branding.church_name}
+              </p>
             )}
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                {branding.church_name || 'Church'} Photos
-              </h1>
-              {branding.church_name && (
-                <p className="text-sm text-gray-600 mt-1">
-                  Welcome to {branding.church_name}
-                </p>
-              )}
-            </div>
           </div>
-          <button
-            onClick={handleLogout}
-            className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500"
-          >
-            Logout
-          </button>
         </div>
 
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+          <div className={`${alertStyles.error} ${sectionStyles.spacing.element}`}>
             {error}
           </div>
         )}
 
         {loading ? (
           <div className="flex justify-center items-center py-12">
-            <div className="text-gray-600">Loading albums...</div>
+            <LoadingSpinner message="Loading albums..." />
           </div>
         ) : albums.length === 0 ? (
           <div className="bg-white rounded-lg shadow-md p-12 text-center">

@@ -17,7 +17,13 @@ const AdminRoute = ({ children }) => {
       const userRole = response.data.user?.role;
       
       setIsAuthenticated(true);
-      setIsAdmin(userRole === 'admin');
+      
+      // Redirect superadmin to platform
+      if (userRole === 'superadmin') {
+        setIsAdmin(false); // Will trigger redirect via return statement
+      } else {
+        setIsAdmin(userRole === 'admin');
+      }
     } catch (err) {
       setIsAuthenticated(false);
       setIsAdmin(false);

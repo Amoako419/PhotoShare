@@ -1,13 +1,22 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { TenantProvider } from './contexts/TenantContext';
+import AppShell from './components/AppShell';
+import LandingPage from './pages/LandingPage';
 import SignupPage from './pages/SignupPage';
+import AdminSignupPage from './pages/AdminSignupPage';
+import MemberSignupPage from './pages/MemberSignupPage';
 import LoginPage from './pages/LoginPage';
+import SetupWizardPage from './pages/SetupWizardPage';
 import HomePage from './pages/HomePage';
 import DashboardPage from './pages/DashboardPage';
 import AlbumPage from './pages/AlbumPage';
 import UploadPage from './pages/UploadPage';
+import SettingsPage from './pages/SettingsPage';
+import PlatformDashboard from './pages/PlatformDashboard';
+import ChurchStatsPage from './pages/ChurchStatsPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
+import SuperAdminRoute from './components/SuperAdminRoute';
 
 function App() {
   return (
@@ -15,26 +24,69 @@ function App() {
       <Router>
         <div className="App">
           <Routes>
-            <Route path="/" element={<Navigate to="/login" replace />} />
-            <Route path="/signup" element={<SignupPage />} />
+            {/* Public routes - no AppShell */}
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/signup" element={<MemberSignupPage />} />
+            <Route path="/admin-signup" element={<AdminSignupPage />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/setup-wizard" element={<SetupWizardPage />} />
             
-            {/* Member routes */}
+            {/* Superadmin routes - with AppShell */}
+            <Route 
+              path="/platform" 
+              element={<Navigate to="/platform/dashboard" replace />}
+            />
+            <Route 
+              path="/platform/dashboard" 
+              element={
+                <SuperAdminRoute>
+                  <AppShell>
+                    <PlatformDashboard />
+                  </AppShell>
+                </SuperAdminRoute>
+              } 
+            />
+            <Route 
+              path="/platform/churches/:churchId/stats" 
+              element={
+                <SuperAdminRoute>
+                  <AppShell>
+                    <ChurchStatsPage />
+                  </AppShell>
+                </SuperAdminRoute>
+              } 
+            />
+            
+            {/* Member routes - with AppShell */}
             <Route 
               path="/home" 
               element={
                 <ProtectedRoute allowedRoles={['member', 'admin']}>
-                  <HomePage />
+                  <AppShell>
+                    <HomePage />
+                  </AppShell>
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/albums" 
+              element={
+                <ProtectedRoute allowedRoles={['member', 'admin']}>
+                  <AppShell>
+                    <HomePage />
+                  </AppShell>
                 </ProtectedRoute>
               } 
             />
             
-            {/* Admin routes */}
+            {/* Admin routes - with AppShell */}
             <Route 
               path="/admin" 
               element={
                 <ProtectedRoute allowedRoles={['admin']}>
-                  <DashboardPage />
+                  <AppShell>
+                    <DashboardPage />
+                  </AppShell>
                 </ProtectedRoute>
               } 
             />
@@ -42,17 +94,31 @@ function App() {
               path="/upload" 
               element={
                 <AdminRoute>
-                  <UploadPage />
+                  <AppShell>
+                    <UploadPage />
+                  </AppShell>
                 </AdminRoute>
               } 
             />
+            <Route 
+              path="/settings" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AppShell>
+                    <SettingsPage />
+                  </AppShell>
+                </ProtectedRoute>
+              } 
+            />
             
-            {/* Shared routes */}
+            {/* Shared routes - with AppShell */}
             <Route 
               path="/album/:id" 
               element={
                 <ProtectedRoute allowedRoles={['member', 'admin']}>
-                  <AlbumPage />
+                  <AppShell>
+                    <AlbumPage />
+                  </AppShell>
                 </ProtectedRoute>
               } 
             />
