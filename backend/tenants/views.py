@@ -38,15 +38,17 @@ def tenant_branding_view(request):
     # Generate signed URLs for branding images if they exist
     try:
         if church.logo_url:
-            branding_data['logo_url'] = s3_service.generate_presigned_url(
+            branding_data['logo_url'] = s3_service.generate_signed_url(
                 s3_key=church.logo_url,
-                expiration=3600  # 1 hour expiry for branding
+                church=church,
+                expiry_minutes=60  # 1 hour expiry for branding
             )
         
         if church.login_cover_image:
-            branding_data['login_cover_image'] = s3_service.generate_presigned_url(
+            branding_data['login_cover_image'] = s3_service.generate_signed_url(
                 s3_key=church.login_cover_image,
-                expiration=3600
+                church=church,
+                expiry_minutes=60
             )
     except Exception as e:
         logger.error(f"Error generating signed URLs for church {church.id}: {e}")
@@ -78,9 +80,10 @@ def public_tenant_branding_view(request):
         }
         
         if church.login_cover_image:
-            branding_data['login_cover_image'] = s3_service.generate_presigned_url(
+            branding_data['login_cover_image'] = s3_service.generate_signed_url(
                 s3_key=church.login_cover_image,
-                expiration=3600
+                church=church,
+                expiry_minutes=60
             )
         
         return Response(branding_data)

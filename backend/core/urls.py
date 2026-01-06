@@ -6,6 +6,7 @@ Includes authentication and photo management endpoints.
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 from . import auth_views
+from . import church_settings_views
 from .photo_views import (
     PhotoUploadView,
     PhotoAccessView,
@@ -27,12 +28,19 @@ urlpatterns = [
     
     # Registration endpoints
     path('auth/signup/', auth_views.signup_view, name='signup'),
+    path('auth/admin-signup/', auth_views.admin_signup_view, name='admin_signup'),
+    path('auth/member-signup/', auth_views.member_signup_view, name='member_signup'),
+    path('auth/validate-church-code/', auth_views.validate_church_code_view, name='validate_church_code'),
     path('auth/assign_church/', auth_views.assign_church_view, name='assign_church'),
     path('auth/assign_church_anonymous/', auth_views.anonymous_assign_church_view, name='assign_church_anonymous'),
     
     # Photo management endpoints
     path('photos/upload/', PhotoUploadView.as_view(), name='photo_upload'),
     path('photos/<int:photo_id>/access/', PhotoAccessView.as_view(), name='photo_access'),
+    
+    # Church settings (admin only)
+    path('church/settings/', church_settings_views.church_settings_view, name='church_settings'),
+    path('church/activate/', church_settings_views.activate_church_view, name='activate_church'),
     
     # Core API endpoints
 ]

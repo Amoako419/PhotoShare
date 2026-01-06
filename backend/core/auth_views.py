@@ -141,6 +141,14 @@ def login_view(request):
     
     user = serializer.validated_data['user']
     
+    # Check if user's church is active (skip for superadmin)
+    if user.church and not user.church.is_active:
+        logger.warning(f"Login attempt from disabled church: {user.church.name} by {user.email}")
+        return Response(
+            {'error': 'Your church account has been disabled. Please contact support.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
     # Generate tokens
     token_serializer = CustomTokenObtainPairSerializer()
     refresh = token_serializer.get_token(user)
@@ -405,6 +413,156 @@ def signup_view(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class AdminSignupSerializer(serializers.Serializer):
+    """Serializer for admin signup with church creation."""
+    church_name = serializers.CharField(max_length=100, required=True)
+    email = serializers.EmailField(required=True)
+    password = serializers.CharField(write_only=True, required=True, min_length=8)
+    first_name = serializers.CharField(max_length=30, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=30, required=False, allow_blank=True)
+    
+    def validate_email(self, value):
+        """Check if email already exists."""
+        if User.objects.filter(email=value.lower()).exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return value.lower()
+    
+    def validate_church_name(self, value):
+        """Validate church name is not empty."""
+        if not value.strip():
+            raise serializers.ValidationError("Church name cannot be empty.")
+        return value.strip()
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def admin_signup_view(request):
+    """
+    Admin signup endpoint - creates both church and admin user.
+    
+    POST /api/v1/auth/admin-signup/
+    {
+        "church_name": "Grace Community Church",
+        "email": "admin@church.com",
+        "password": "securepass123",
+        "first_name": "John",  // optional
+        "last_name": "Doe"     // optional
+    }
+    
+    Returns:
+    - User information
+    - Church information
+    - JWT tokens via httpOnly cookies
+    - Church starts as inactive
+    """
+    serializer = AdminSignupSerializer(data=request.data)
+    
+    if not serializer.is_valid():
+        logger.warning(f"Admin signup failed validation: {serializer.errors}")
+        return Response({
+            'error': 'Invalid signup data',
+            'details': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        from tenants.models import Church
+        import secrets
+        import string
+        
+        # Generate unique church code
+        def generate_church_code():
+            alphabet = string.ascii_uppercase + string.digits
+            while True:
+                code = ''.join(secrets.choice(alphabet) for _ in range(8))
+                if not Church.objects.filter(church_code=code).exists():
+                    return code
+        
+        # Create church (inactive by default)
+        church = Church.objects.create(
+            name=serializer.validated_data['church_name'],
+            church_code=generate_church_code(),
+            is_active=False  # Church starts inactive
+        )
+        
+        # Create admin user
+        user = User.objects.create_user(
+            email=serializer.validated_data['email'],
+            password=serializer.validated_data['password'],
+            first_name=serializer.validated_data.get('first_name', ''),
+            last_name=serializer.validated_data.get('last_name', ''),
+            church=church,
+            role=User.Role.ADMIN
+        )
+        
+        logger.info(
+            f"Admin signup successful: {user.email} created church '{church.name}' "
+            f"(Code: {church.church_code})"
+        )
+        
+        # Generate tokens
+        refresh = RefreshToken.for_user(user)
+        access_token = refresh.access_token
+        
+        # Add custom claims
+        refresh['church_id'] = str(church.id)
+        refresh['church_name'] = church.name
+        refresh['role'] = user.role
+        refresh['email'] = user.email
+        
+        access_token['church_id'] = str(church.id)
+        access_token['church_name'] = church.name
+        access_token['role'] = user.role
+        access_token['email'] = user.email
+        
+        # Prepare response
+        response_data = {
+            'message': 'Admin account and church created successfully',
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'role': user.role
+            },
+            'church': {
+                'id': str(church.id),
+                'name': church.name,
+                'church_code': church.church_code,
+                'is_active': church.is_active
+            },
+            'next_step': 'Complete setup wizard to activate your church'
+        }
+        
+        response = Response(response_data, status=status.HTTP_201_CREATED)
+        
+        # Set httpOnly cookies
+        response.set_cookie(
+            key='access_token',
+            value=str(access_token),
+            max_age=3600,  # 1 hour
+            httponly=True,
+            secure=False,  # Set to True in production with HTTPS
+            samesite='Lax'
+        )
+        
+        response.set_cookie(
+            key='refresh_token',
+            value=str(refresh),
+            max_age=7 * 24 * 3600,  # 7 days
+            httponly=True,
+            secure=False,  # Set to True in production with HTTPS
+            samesite='Lax'
+        )
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error during admin signup: {str(e)}", exc_info=True)
+        return Response({
+            'error': 'Failed to create admin account and church'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class ChurchAssignmentSerializer(serializers.Serializer):
     """Serializer for church code assignment."""
     church_code = serializers.CharField(max_length=50)
@@ -455,6 +613,13 @@ def assign_church_view(request):
         church = Church.objects.get(
             church_code=serializer.validated_data['church_code']
         )
+        
+        # Check if church is active
+        if not church.is_active:
+            logger.warning(f"User {user.email} attempted to join disabled church: {church.name}")
+            return Response({
+                'error': 'This church is currently disabled. Please contact your church administrator.'
+            }, status=status.HTTP_403_FORBIDDEN)
         
         # Assign church to user
         user.church = church
@@ -624,3 +789,244 @@ def anonymous_assign_church_view(request):
         return Response({
             'error': 'Failed to assign church'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class MemberSignupSerializer(serializers.Serializer):
+    """Serializer for member signup with church code validation."""
+    church_code = serializers.CharField(max_length=50, required=True)
+    email = serializers.EmailField(required=True)
+    password = serializers.CharField(write_only=True, required=True, min_length=8)
+    first_name = serializers.CharField(max_length=30, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=30, required=False, allow_blank=True)
+    
+    def validate_email(self, value):
+        """Check if email already exists."""
+        if User.objects.filter(email=value.lower()).exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return value.lower()
+    
+    def validate_church_code(self, value):
+        """Validate church code and check if church is active."""
+        from tenants.models import Church
+        
+        try:
+            church = Church.objects.get(church_code=value.upper())
+            if not church.is_active:
+                raise serializers.ValidationError(
+                    "This church is not currently accepting new members. "
+                    "Please contact your church administrator."
+                )
+            return value.upper()
+        except Church.DoesNotExist:
+            raise serializers.ValidationError("Invalid church code.")
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def member_signup_view(request):
+    """
+    Member signup endpoint - validates church code and creates member user.
+    
+    POST /api/v1/core/auth/member-signup/
+    {
+        "church_code": "ABC12345",
+        "email": "member@church.com",
+        "password": "securepass123",
+        "first_name": "Jane",  // optional
+        "last_name": "Smith"   // optional
+    }
+    
+    Returns:
+    - User information
+    - Church information
+    - JWT tokens via httpOnly cookies
+    
+    Rate limiting: Max 5 attempts per IP per 15 minutes
+    """
+    from django.core.cache import cache
+    from tenants.models import Church
+    
+    # Rate limiting for church code attempts
+    ip_address = request.META.get('REMOTE_ADDR', 'unknown')
+    rate_limit_key = f'member_signup_attempts_{ip_address}'
+    attempts = cache.get(rate_limit_key, 0)
+    
+    if attempts >= 5:
+        logger.warning(f"Rate limit exceeded for member signup from IP: {ip_address}")
+        return Response({
+            'error': 'Too many signup attempts. Please try again in 15 minutes.'
+        }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+    
+    serializer = MemberSignupSerializer(data=request.data)
+    
+    if not serializer.is_valid():
+        # Increment attempts on validation failure (especially for invalid church code)
+        cache.set(rate_limit_key, attempts + 1, 900)  # 15 minutes
+        
+        logger.warning(f"Member signup failed validation: {serializer.errors}")
+        return Response({
+            'error': 'Invalid signup data',
+            'details': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        # Get the church (already validated in serializer)
+        church = Church.objects.get(
+            church_code=serializer.validated_data['church_code']
+        )
+        
+        # Create member user
+        user = User.objects.create_user(
+            email=serializer.validated_data['email'],
+            password=serializer.validated_data['password'],
+            first_name=serializer.validated_data.get('first_name', ''),
+            last_name=serializer.validated_data.get('last_name', ''),
+            church=church,
+            role=User.Role.MEMBER
+        )
+        
+        logger.info(
+            f"Member signup successful: {user.email} joined church '{church.name}' "
+            f"(Code: {church.church_code})"
+        )
+        
+        # Clear rate limit on successful signup
+        cache.delete(rate_limit_key)
+        
+        # Generate tokens
+        refresh = RefreshToken.for_user(user)
+        access_token = refresh.access_token
+        
+        # Add custom claims
+        refresh['church_id'] = str(church.id)
+        refresh['church_name'] = church.name
+        refresh['role'] = user.role
+        refresh['email'] = user.email
+        
+        access_token['church_id'] = str(church.id)
+        access_token['church_name'] = church.name
+        access_token['role'] = user.role
+        access_token['email'] = user.email
+        
+        # Prepare response
+        response_data = {
+            'message': 'Member account created successfully',
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'role': user.role
+            },
+            'church': {
+                'id': str(church.id),
+                'name': church.name,
+                'church_code': church.church_code
+            }
+        }
+        
+        response = Response(response_data, status=status.HTTP_201_CREATED)
+        
+        # Set httpOnly cookies
+        response.set_cookie(
+            key='access_token',
+            value=str(access_token),
+            max_age=3600,  # 1 hour
+            httponly=True,
+            secure=False,  # Set to True in production with HTTPS
+            samesite='Lax'
+        )
+        
+        response.set_cookie(
+            key='refresh_token',
+            value=str(refresh),
+            max_age=7 * 24 * 3600,  # 7 days
+            httponly=True,
+            secure=False,  # Set to True in production with HTTPS
+            samesite='Lax'
+        )
+        
+        return response
+        
+    except Church.DoesNotExist:
+        # This shouldn't happen due to serializer validation, but handle anyway
+        cache.set(rate_limit_key, attempts + 1, 900)
+        return Response({
+            'error': 'Invalid church code'
+        }, status=status.HTTP_400_BAD_REQUEST)
+        
+    except Exception as e:
+        logger.error(f"Error during member signup: {str(e)}", exc_info=True)
+        return Response({
+            'error': 'Failed to create member account'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def validate_church_code_view(request):
+    """
+    Validate a church code without creating an account.
+    
+    POST /api/v1/core/auth/validate-church-code/
+    {
+        "church_code": "ABC12345"
+    }
+    
+    Returns:
+    - Church information if valid and active
+    - Error if invalid or inactive
+    
+    Rate limiting: Max 10 attempts per IP per 15 minutes
+    """
+    from django.core.cache import cache
+    from tenants.models import Church
+    
+    # Rate limiting for church code validation
+    ip_address = request.META.get('REMOTE_ADDR', 'unknown')
+    rate_limit_key = f'validate_church_code_{ip_address}'
+    attempts = cache.get(rate_limit_key, 0)
+    
+    if attempts >= 10:
+        logger.warning(f"Rate limit exceeded for church code validation from IP: {ip_address}")
+        return Response({
+            'error': 'Too many validation attempts. Please try again in 15 minutes.'
+        }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+    
+    church_code = request.data.get('church_code', '').strip().upper()
+    
+    if not church_code:
+        cache.set(rate_limit_key, attempts + 1, 900)  # 15 minutes
+        return Response({
+            'error': 'Church code is required'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        church = Church.objects.get(church_code=church_code)
+        
+        if not church.is_active:
+            cache.set(rate_limit_key, attempts + 1, 900)
+            logger.warning(f"Validation attempt for inactive church: {church.name} (Code: {church_code})")
+            return Response({
+                'error': 'This church is not currently accepting new members. Please contact your church administrator.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Clear rate limit on successful validation
+        cache.delete(rate_limit_key)
+        
+        logger.info(f"Church code validated successfully: {church_code} -> {church.name}")
+        return Response({
+            'valid': True,
+            'church': {
+                'id': str(church.id),
+                'name': church.name,
+                'church_code': church.church_code
+            }
+        }, status=status.HTTP_200_OK)
+        
+    except Church.DoesNotExist:
+        cache.set(rate_limit_key, attempts + 1, 900)
+        logger.warning(f"Invalid church code validation attempt: {church_code}")
+        return Response({
+            'error': 'Invalid church code. Please check and try again.'
+        }, status=status.HTTP_404_NOT_FOUND)
