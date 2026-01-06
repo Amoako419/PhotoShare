@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import api from '../lib/api';
 
-const ProtectedRoute = ({ children, allowedRoles = [] }) => {
+const SuperAdminRoute = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
 
@@ -33,24 +33,19 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     return <Navigate to="/login" replace />;
   }
 
-  // If no specific roles required, just check authentication
-  if (allowedRoles.length === 0) {
-    return children;
-  }
-
-  // Check if user role is allowed
-  if (!allowedRoles.includes(user.role)) {
+  // Only superadmin can access platform routes
+  if (user.role !== 'superadmin') {
     // Redirect based on their actual role
-    if (user.role === 'superadmin') {
-      return <Navigate to="/platform/dashboard" replace />;
-    } else if (user.role === 'admin') {
+    if (user.role === 'admin') {
       return <Navigate to="/admin" replace />;
-    } else {
+    } else if (user.role === 'member') {
       return <Navigate to="/home" replace />;
+    } else {
+      return <Navigate to="/login" replace />;
     }
   }
 
   return children;
 };
 
-export default ProtectedRoute;
+export default SuperAdminRoute;

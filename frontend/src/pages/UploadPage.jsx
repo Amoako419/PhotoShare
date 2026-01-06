@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api, { logout } from '../lib/api';
+import api from '../lib/api';
+import Toast from '../components/Toast';
+import LoadingSpinner from '../components/LoadingSpinner';
+import { buttonStyles, alertStyles, sectionStyles } from '../utils/buttonStyles';
 
 const UploadPage = () => {
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -10,6 +13,7 @@ const UploadPage = () => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [toast, setToast] = useState(null);
   
   const fileInputRef = useRef(null);
   const navigate = useNavigate();
@@ -35,11 +39,11 @@ const UploadPage = () => {
     
     const validFiles = files.filter(file => {
       if (!validTypes.includes(file.type)) {
-        setError(`${file.name} is not a valid image type. Only JPEG, PNG, GIF, and WebP are allowed.`);
+        setToast({ message: `${file.name} is not a valid image type. Only JPEG, PNG, GIF, and WebP are allowed.`, type: 'error' });
         return false;
       }
       if (file.size > maxSize) {
-        setError(`${file.name} is too large. Maximum file size is 10MB.`);
+        setToast({ message: `${file.name} is too large. Maximum file size is 10MB.`, type: 'error' });
         return false;
       }
       return true;
@@ -95,7 +99,10 @@ const UploadPage = () => {
         },
       });
 
-      setSuccess(`Successfully uploaded ${selectedFiles.length} photo(s) to album "${albumTitle}"`);
+      setToast({ 
+        message: `Successfully uploaded ${selectedFiles.length} photo(s) to album "${albumTitle}"`, 
+        type: 'success' 
+      });
       setSelectedFiles([]);
       setAlbumTitle('');
       setEventDate('');
@@ -106,57 +113,51 @@ const UploadPage = () => {
       }, 2000);
       
     } catch (err) {
-      setError(
-        err.response?.data?.message || 
-        err.response?.data?.error || 
-        err.response?.data?.detail ||
-        'Failed to upload photos. Please try again.'
-      );
+      setToast({
+        message: err.response?.data?.message || 
+                 err.response?.data?.error || 
+                 err.response?.data?.detail ||
+                 'Failed to upload photos. Please try again.',
+        type: 'error'
+      });
       setUploadProgress(0);
     } finally {
       setUploading(false);
     }
   };
 
-  const handleLogout = async () => {
-    await logout();
-  };
-
   return (
     <div className="min-h-screen bg-gray-50">
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+      
       <div className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-start mb-4">
+        <div className="mb-4">
           <button
             onClick={() => navigate('/dashboard')}
-            className="text-blue-600 hover:text-blue-700 flex items-center gap-2"
+            className={buttonStyles.link}
+            aria-label="Back to Dashboard"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
             Back to Dashboard
           </button>
-          <button
-            onClick={handleLogout}
-            className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
-          >
-            Logout
-          </button>
         </div>
 
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">
+        <h1 className={sectionStyles.pageHeader}>
           Upload Photos
         </h1>
 
         <div className="max-w-2xl mx-auto bg-white rounded-lg shadow-md p-8">
           {error && (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+            <div className={`${alertStyles.error} ${sectionStyles.spacing.element}`}>
               {error}
-            </div>
-          )}
-
-          {success && (
-            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
-              {success}
             </div>
           )}
 
@@ -276,7 +277,7 @@ const UploadPage = () => {
             <button
               type="submit"
               disabled={uploading || selectedFiles.length === 0}
-              className="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`${buttonStyles.primary} w-full`}
             >
               {uploading ? 'Uploading...' : `Upload ${selectedFiles.length} Photo${selectedFiles.length !== 1 ? 's' : ''}`}
             </button>

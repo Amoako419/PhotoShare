@@ -20,6 +20,7 @@ urlpatterns = [
     # API versioning - v1
     path('api/v1/core/', include('core.urls')),
     path('api/v1/tenants/', include('tenants.urls')),
+    path('api/v1/platform/', include('platform_admin.urls')),
     
     # API root - DRF browsable API
     path('api/', include('rest_framework.urls', namespace='rest_framework')),
