@@ -51,6 +51,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     """
     
     class Role(models.TextChoices):
+        SUPERADMIN = 'superadmin', 'Super Admin'
         ADMIN = 'admin', 'Admin'
         MEMBER = 'member', 'Member'
     
@@ -78,15 +79,15 @@ class User(AbstractBaseUser, PermissionsMixin):
         null=True,
         blank=True,
         related_name='users',
-        help_text='Church this user belongs to for tenant isolation'
+        help_text='Church this user belongs to for tenant isolation (null for superadmin)'
     )
     
-    # Role within the church
+    # Role within the church (or platform role for superadmin)
     role = models.CharField(
-        max_length=10,
+        max_length=15,
         choices=Role.choices,
         default=Role.MEMBER,
-        help_text='User\'s role within their church'
+        help_text='User\'s role: superadmin (platform), admin (church), or member (church)'
     )
     
     # Account status

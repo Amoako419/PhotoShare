@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api, { logout } from '../lib/api';
+import Toast from '../components/Toast';
+import LoadingSpinner from '../components/LoadingSpinner';
+import { buttonStyles, alertStyles, sectionStyles } from '../utils/buttonStyles';
 
 const AlbumPage = () => {
   const { id } = useParams();
@@ -13,12 +16,31 @@ const AlbumPage = () => {
   const [error, setError] = useState('');
   const [urlsLoading, setUrlsLoading] = useState({});
   const [downloadingPhotos, setDownloadingPhotos] = useState({});
+  const [userRole, setUserRole] = useState(null);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadSuccess, setUploadSuccess] = useState('');
+  const [previewPhoto, setPreviewPhoto] = useState(null);
+  const [toast, setToast] = useState(null);
   
   const observerRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     fetchAlbumPhotos();
+    fetchUserRole();
   }, [id]);
+
+  const fetchUserRole = async () => {
+    try {
+      const response = await api.get('/api/v1/core/auth/user/');
+      setUserRole(response.data.user?.role);
+    } catch (err) {
+      console.error('Failed to fetch user role:', err);
+    }
+  };
 
   const fetchAlbumPhotos = async () => {
     try {
@@ -54,6 +76,104 @@ const AlbumPage = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleUploadToAlbum = async (e) => {
+    e.preventDefault();
+    
+    if (selectedFiles.length === 0) {
+      setError('Please select at least one file to upload.');
+      return;
+    }
+
+    try {
+      setUploading(true);
+      setError('');
+      setUploadSuccess('');
+      setUploadProgress(0);
+
+      // Save scroll position
+      const scrollPosition = window.scrollY;
+
+      const formData = new FormData();
+      formData.append('album_id', id);
+      
+      selectedFiles.forEach((file) => {
+        formData.append('photos', file);
+      });
+
+      await api.post('/api/v1/core/photos/upload/', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadProgress(percentCompleted);
+        },
+      });
+
+      setToast({ 
+        message: `Successfully uploaded ${selectedFiles.length} photo(s)`, 
+        type: 'success' 
+      });
+      setSelectedFiles([]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      
+      // Refresh photos without losing position
+      await fetchAlbumPhotos();
+      
+      // Restore scroll position
+      setTimeout(() => {
+        window.scrollTo(0, scrollPosition);
+      }, 100);
+      
+      // Close modal after short delay
+      setTimeout(() => {
+        setShowUploadModal(false);
+        setUploadSuccess('');
+      }, 2000);
+      
+    } catch (err) {
+      setToast({
+        message: err.response?.data?.message || 
+                 err.response?.data?.error || 
+                 err.response?.data?.detail ||
+                 'Failed to upload photos. Please try again.',
+        type: 'error'
+      });
+      setUploadProgress(0);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files);
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    
+    const validFiles = files.filter(file => {
+      if (!validTypes.includes(file.type)) {
+        setToast({ message: `${file.name} is not a valid image type.`, type: 'error' });
+        return false;
+      }
+      if (file.size > maxSize) {
+        setToast({ message: `${file.name} is too large. Maximum 10MB.`, type: 'error' });
+        return false;
+      }
+      return true;
+    });
+
+    if (validFiles.length > 0) {
+      setSelectedFiles(prev => [...prev, ...validFiles]);
+      setError('');
+    }
+  };
+
+  const removeFile = (index) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const fetchSignedUrl = async (photoId) => {
@@ -145,17 +265,29 @@ const AlbumPage = () => {
         throw new Error('No signed URL received from server');
       }
       
+      // Fetch the image as a blob
+      const imageResponse = await fetch(signedUrl);
+      if (!imageResponse.ok) {
+        throw new Error('Failed to fetch image');
+      }
+      
+      const blob = await imageResponse.blob();
+      
+      // Create object URL from blob
+      const blobUrl = URL.createObjectURL(blob);
+      
       // Create a temporary anchor element to trigger download
       const link = document.createElement('a');
-      link.href = signedUrl;
-      link.download = photoTitle || `photo-${photoId}`;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
+      link.href = blobUrl;
+      link.download = photoTitle || `photo-${photoId}.jpg`;
       
       // Append to body, click, and remove
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      
+      // Clean up the blob URL
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
       
     } catch (err) {
       console.error(`Failed to download photo ${photoId}:`, err);
@@ -183,26 +315,43 @@ const AlbumPage = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+      
       <div className="container mx-auto px-4 py-8">
-        <div className="mb-6">
+        <div className={sectionStyles.spacing.section}>
           <div className="flex justify-between items-start mb-4">
             <button
               onClick={() => navigate('/dashboard')}
-              className="text-blue-600 hover:text-blue-700 flex items-center gap-2"
+              className={buttonStyles.link}
+              aria-label="Back to Dashboard"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
               Back to Dashboard
             </button>
-            <button
-              onClick={handleLogout}
-              className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 text-sm"
-            >
-              Logout
-            </button>
+            <div className="flex gap-3">
+              {userRole === 'admin' && (
+                <button
+                  onClick={() => setShowUploadModal(true)}
+                  className={buttonStyles.primary}
+                  aria-label="Add photos to album"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Add Photos
+                </button>
+              )}
+            </div>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">
+          <h1 className={sectionStyles.pageHeader}>
             {album?.title || `Album ${id}`}
           </h1>
           {album?.event_date && (
@@ -213,14 +362,14 @@ const AlbumPage = () => {
         </div>
 
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+          <div className={`${alertStyles.error} ${sectionStyles.spacing.element}`}>
             {error}
           </div>
         )}
 
         {loading ? (
           <div className="flex justify-center items-center py-12">
-            <div className="text-gray-600">Loading photos...</div>
+            <LoadingSpinner message="Loading photos..." />
           </div>
         ) : photos.length === 0 ? (
           <div className="bg-white rounded-lg shadow-md p-12 text-center">
@@ -261,8 +410,9 @@ const AlbumPage = () => {
                     <img
                       src={signedUrls[photo.id]}
                       alt={photo.title || 'Photo'}
-                      className="w-full h-full object-cover transition-opacity duration-300"
+                      className="w-full h-full object-cover transition-opacity duration-300 cursor-pointer"
                       loading="lazy"
+                      onClick={() => setPreviewPhoto(photo)}
                       onLoad={(e) => {
                         e.target.style.opacity = '1';
                       }}
@@ -355,6 +505,193 @@ const AlbumPage = () => {
           </div>
         )}
       </div>
+
+      {/* Upload Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">Add Photos to Album</h2>
+                <button
+                  onClick={() => {
+                    setShowUploadModal(false);
+                    setSelectedFiles([]);
+                    setError('');
+                    setUploadSuccess('');
+                    if (fileInputRef.current) {
+                      fileInputRef.current.value = '';
+                    }
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                  disabled={uploading}
+                  aria-label="Close upload modal"
+                >
+                  <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {error && (
+                <div className={`${alertStyles.error} ${sectionStyles.spacing.element}`}>
+                  {error}
+                </div>
+              )}
+
+              <form onSubmit={handleUploadToAlbum}>
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Photos
+                  </label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={handleFileSelect}
+                    disabled={uploading}
+                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
+                  />
+                  <p className="text-xs text-gray-500 mt-2">
+                    Supported formats: JPEG, PNG, GIF, WebP. Maximum 10MB per file.
+                  </p>
+                </div>
+
+                {selectedFiles.length > 0 && (
+                  <div className="mb-6">
+                    <h3 className="text-sm font-medium text-gray-700 mb-3">
+                      Selected Files ({selectedFiles.length})
+                    </h3>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {selectedFiles.map((file, index) => (
+                        <div key={index} className="flex items-center justify-between bg-gray-50 p-2 rounded">
+                          <span className="text-sm text-gray-700 truncate flex-1">{file.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeFile(index)}
+                            disabled={uploading}
+                            className="ml-2 text-red-600 hover:text-red-800 disabled:opacity-50"
+                          >
+                            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {uploading && (
+                  <div className="mb-6">
+                    <div className="flex justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-700">Uploading...</span>
+                      <span className="text-sm font-medium text-gray-700">{uploadProgress}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${uploadProgress}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-4">
+                  <button
+                    type="submit"
+                    disabled={uploading || selectedFiles.length === 0}
+                    className={buttonStyles.primary}
+                  >
+                    {uploading ? 'Uploading...' : `Upload ${selectedFiles.length} Photo${selectedFiles.length !== 1 ? 's' : ''}`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowUploadModal(false);
+                      setSelectedFiles([]);
+                      setError('');
+                      if (fileInputRef.current) {
+                        fileInputRef.current.value = '';
+                      }
+                    }}
+                    disabled={uploading}
+                    className={buttonStyles.secondary}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Preview Modal */}
+      {previewPhoto && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4"
+          onClick={() => setPreviewPhoto(null)}
+        >
+          <div className="relative max-w-7xl w-full h-full flex flex-col">
+            {/* Close button */}
+            <div className="flex justify-between items-center mb-4">
+              <div className="text-white">
+                <h3 className="text-xl font-semibold">{previewPhoto.title || 'Photo'}</h3>
+                {previewPhoto.uploaded_at && (
+                  <p className="text-sm text-gray-300 mt-1">
+                    {new Date(previewPhoto.uploaded_at).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDownload(previewPhoto.id, previewPhoto.title || previewPhoto.filename);
+                  }}
+                  className="bg-white text-gray-900 px-4 py-2 rounded-md hover:bg-gray-100 flex items-center gap-2"
+                >
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Download
+                </button>
+                <button
+                  onClick={() => setPreviewPhoto(null)}
+                  className="bg-white text-gray-900 px-4 py-2 rounded-md hover:bg-gray-100"
+                >
+                  <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            
+            {/* Image container */}
+            <div className="flex-1 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+              {signedUrls[previewPhoto.id] ? (
+                <img
+                  src={signedUrls[previewPhoto.id]}
+                  alt={previewPhoto.title || 'Photo'}
+                  className="max-w-full max-h-full object-contain rounded-lg"
+                />
+              ) : (
+                <div className="text-white text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-4 border-white border-t-transparent mx-auto mb-4"></div>
+                  <p>Loading image...</p>
+                </div>
+              )}
+            </div>
+            
+            {/* Navigation hints */}
+            <div className="text-center text-gray-400 text-sm mt-4">
+              Click outside to close
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

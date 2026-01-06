@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTenant } from '../contexts/TenantContext';
 import api, { logout } from '../lib/api';
+import Toast from '../components/Toast';import LoadingSpinner from '../components/LoadingSpinner';import { buttonStyles, alertStyles, sectionStyles } from '../utils/buttonStyles';
 
 const DashboardPage = () => {
   const [albums, setAlbums] = useState([]);
@@ -9,6 +10,7 @@ const DashboardPage = () => {
   const [error, setError] = useState('');
   const [userRole, setUserRole] = useState(null);
   const [deletingAlbum, setDeletingAlbum] = useState(null);
+  const [toast, setToast] = useState(null);
   const navigate = useNavigate();
   const { branding, fetchBranding } = useTenant();
 
@@ -46,11 +48,11 @@ const DashboardPage = () => {
         // Not authenticated - redirect to login (handled by interceptor)
         // navigate('/login'); // Interceptor will handle this
       } else {
-        setError(
-          err.response?.data?.message || 
+        const errorMsg = err.response?.data?.message || 
           err.response?.data?.error || 
-          'Failed to load albums. Please try again.'
-        );
+          'Failed to load albums. Please try again.';
+        setError(errorMsg);
+        setToast({ message: errorMsg, type: 'error' });
       }
     } finally {
       setLoading(false);
@@ -81,17 +83,19 @@ const DashboardPage = () => {
       // Remove deleted album from state
       setAlbums(albums.filter(album => album.id !== albumId));
       
-      // Show success message briefly
-      const message = response.data.message || 'Album deleted successfully';
-      console.log(message, response.data);
+      // Show success toast
+      setToast({
+        message: `Album "${albumTitle}" deleted successfully`,
+        type: 'success'
+      });
       
     } catch (err) {
       console.error('Failed to delete album:', err);
-      setError(
-        err.response?.data?.error ||
+      const errorMsg = err.response?.data?.error ||
         err.response?.data?.detail ||
-        'Failed to delete album. Please try again.'
-      );
+        'Failed to delete album. Please try again.';
+      setError(errorMsg);
+      setToast({ message: errorMsg, type: 'error' });
     } finally {
       setDeletingAlbum(null);
     }
@@ -99,60 +103,91 @@ const DashboardPage = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-8">
-          <div className="flex items-center gap-4">
-            {branding.logo_url && (
-              <img 
-                src={branding.logo_url} 
-                alt={`${branding.church_name} Logo`}
-                className="h-12 w-12 object-contain rounded-md"
-              />
-            )}
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                {branding.church_name || 'Church'} Albums
-              </h1>
-              {branding.church_name && (
-                <p className="text-sm text-gray-600 mt-1">
-                  Welcome to {branding.church_name}
-                </p>
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+      
+      <div className="container mx-auto px-4 py-6 sm:py-8">
+        {/* Header Section */}
+        <div className={sectionStyles.spacing.section}>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
+            <div className="flex items-center gap-3">
+              {branding.logo_url && (
+                <img 
+                  src={branding.logo_url} 
+                  alt={`${branding.church_name} Logo`}
+                  className="h-10 w-10 sm:h-12 sm:w-12 object-contain rounded-md"
+                />
               )}
+              <div>
+                <h1 className={sectionStyles.pageHeader}>
+                  {branding.church_name || 'Church'} Albums
+                </h1>
+                {branding.church_name && (
+                  <p className="text-xs sm:text-sm text-gray-600 mt-1">
+                    Welcome to {branding.church_name}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
-          <div className="flex gap-3">
-            {userRole === 'admin' && (
+
+          {/* Action Cards - Admin Only */}
+          {userRole === 'admin' && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
               <button
                 onClick={() => navigate('/upload')}
-                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={`${buttonStyles.primary} rounded-xl p-4`}
+                aria-label="Upload photos to create new album"
               >
-                Upload Photos
+                <div className="flex flex-col items-center gap-2 text-center">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
+                    <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                  </div>
+                  <span className="font-semibold text-sm sm:text-base">Upload Photos</span>
+                </div>
               </button>
-            )}
-            <button
-              onClick={handleLogout}
-              className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500"
-            >
-              Logout
-            </button>
-          </div>
+
+              <button
+                onClick={() => navigate('/settings')}
+                className={`${buttonStyles.secondary} rounded-xl p-4`}
+                aria-label="Church settings and branding"
+              >
+                <div className="flex flex-col items-center gap-2 text-center">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-200 rounded-lg flex items-center justify-center">
+                    <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  </div>
+                  <span className="font-semibold text-sm sm:text-base">Settings</span>
+                </div>
+              </button>
+            </div>
+          )}
         </div>
 
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+          <div className={`${alertStyles.error} ${sectionStyles.spacing.element}`}>
             {error}
           </div>
         )}
 
         {loading ? (
           <div className="flex justify-center items-center py-12">
-            <div className="text-gray-600">Loading albums...</div>
+            <LoadingSpinner message="Loading albums..." />
           </div>
         ) : albums.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-md p-12 text-center">
+          <div className="bg-white rounded-xl shadow-md p-8 sm:p-12 text-center">
             <div className="text-gray-400 mb-4">
               <svg 
-                className="mx-auto h-12 w-12" 
+                className="mx-auto h-16 w-16 sm:h-20 sm:w-20" 
                 fill="none" 
                 stroke="currentColor" 
                 viewBox="0 0 24 24"
@@ -165,10 +200,10 @@ const DashboardPage = () => {
                 />
               </svg>
             </div>
-            <h3 className="text-xl font-semibold text-gray-800 mb-2">
+            <h3 className="text-xl sm:text-2xl font-semibold text-gray-800 mb-2">
               No Albums Yet
             </h3>
-            <p className="text-gray-600 mb-6">
+            <p className="text-gray-600 mb-6 text-sm sm:text-base">
               {userRole === 'admin' 
                 ? 'Start by uploading photos to create your first album'
                 : 'No albums available yet. Check back later!'}
@@ -176,31 +211,40 @@ const DashboardPage = () => {
             {userRole === 'admin' && (
               <button
                 onClick={() => navigate('/upload')}
-                className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={buttonStyles.primary}
               >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
                 Upload Photos
               </button>
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {albums.map((album) => (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm text-gray-600">
+                {albums.length} {albums.length === 1 ? 'album' : 'albums'}
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+              {albums.map((album) => (
               <div
                 key={album.id}
                 onClick={() => handleAlbumClick(album.id)}
-                className="bg-white rounded-lg shadow-md overflow-hidden cursor-pointer hover:shadow-lg transition-shadow duration-200"
+                className="bg-white rounded-xl shadow-md overflow-hidden cursor-pointer hover:shadow-xl transition-all duration-200 active:scale-98"
               >
-                <div className="aspect-w-16 aspect-h-9 bg-gray-200 flex items-center justify-center">
+                <div className="relative bg-gray-200 flex items-center justify-center">
                   {album.thumbnail_url ? (
                     <img 
                       src={album.thumbnail_url} 
                       alt={album.title}
-                      className="w-full h-48 object-cover"
+                      className="w-full h-48 sm:h-52 object-cover"
                     />
                   ) : (
-                    <div className="w-full h-48 bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center">
+                    <div className="w-full h-48 sm:h-52 bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center">
                       <svg 
-                        className="h-16 w-16 text-blue-300" 
+                        className="h-16 w-16 sm:h-20 sm:w-20 text-indigo-300" 
                         fill="none" 
                         stroke="currentColor" 
                         viewBox="0 0 24 24"
@@ -214,46 +258,58 @@ const DashboardPage = () => {
                       </svg>
                     </div>
                   )}
+                  {userRole === 'admin' && (
+                    <button
+                      onClick={(e) => handleDeleteAlbum(album.id, album.title, e)}
+                      disabled={deletingAlbum === album.id}
+                      className={`${buttonStyles.icon} absolute top-2 right-2 bg-white text-red-600 hover:bg-red-50 shadow-lg z-10 disabled:opacity-50 disabled:cursor-not-allowed`}
+                      title="Delete album"
+                      aria-label={`Delete album ${album.title}`}
+                    >
+                      {deletingAlbum === album.id ? (
+                        <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      ) : (
+                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
                 </div>
-                <div className="p-4">
-                  <div className="flex justify-between items-start mb-2">
-                    <h3 className="text-lg font-semibold text-gray-900 truncate flex-1">
-                      {album.title}
-                    </h3>
-                    {userRole === 'admin' && (
-                      <button
-                        onClick={(e) => handleDeleteAlbum(album.id, album.title, e)}
-                        disabled={deletingAlbum === album.id}
-                        className="ml-2 text-red-600 hover:text-red-800 hover:bg-red-50 p-1.5 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Delete album"
-                      >
-                        {deletingAlbum === album.id ? (
-                          <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                        ) : (
-                          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        )}
-                      </button>
+                <div className="p-4 sm:p-5">
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-900 truncate mb-2">
+                    {album.title}
+                  </h3>
+                  <div className="flex items-center justify-between text-sm text-gray-600">
+                    {album.event_date && (
+                      <span className="flex items-center gap-1.5">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        {new Date(album.event_date).toLocaleDateString('en-US', { 
+                          month: 'short', 
+                          day: 'numeric', 
+                          year: 'numeric' 
+                        })}
+                      </span>
+                    )}
+                    {album.photo_count !== undefined && (
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        {album.photo_count}
+                      </span>
                     )}
                   </div>
-                  {album.event_date && (
-                    <p className="text-sm text-gray-500 mb-2">
-                      {new Date(album.event_date).toLocaleDateString()}
-                    </p>
-                  )}
-                  {album.photo_count !== undefined && (
-                    <p className="text-sm text-gray-600">
-                      {album.photo_count} {album.photo_count === 1 ? 'photo' : 'photos'}
-                    </p>
-                  )}
                 </div>
               </div>
             ))}
           </div>
+          </>
         )}
       </div>
     </div>
